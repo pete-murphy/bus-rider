@@ -4,5 +4,6 @@ output/
 .psc-ide-port
 .purs-repl
 log*.txt
+log*.json
 .env
 do.sh
