@@ -1,0 +1,8 @@
+node_modules/
+output/
+.spago/
+.psc-ide-port
+.purs-repl
+log*.txt
+.env
+do.sh
