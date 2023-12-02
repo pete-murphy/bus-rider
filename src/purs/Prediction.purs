@@ -5,6 +5,7 @@ import Prelude
 import Codec.JSON.DecodeError as Codec.JSON.DecodeError
 import Control.Monad.Except (ExceptT(..))
 import Control.Monad.Except as Except
+import Data.Array as Array
 import Data.Bifunctor as Bifunctor
 import Data.Codec.JSON (Codec)
 import Data.Codec.JSON as Codec.JSON
@@ -52,7 +53,7 @@ type RawPrediction =
   , relationships ::
       { route :: { data :: { id :: String } }
       , stop :: { data :: { id :: String } }
-      , vehicle :: { data :: { id :: String } }
+      , vehicle :: { data :: Maybe { id :: String } }
       }
   }
 
@@ -74,9 +75,11 @@ codec = Codec.JSON.Record.object
               }
           }
       , vehicle: Codec.JSON.Record.object
-          { data: Codec.JSON.Record.object
-              { id: Codec.JSON.string
-              }
+          { data: Codec.JSON.nullable
+              ( Codec.JSON.Record.object
+                  { id: Codec.JSON.string
+                  }
+              )
           }
       }
   }
@@ -100,10 +103,12 @@ parse json = Except.runExceptT do
           1 -> Just true
           _ -> Nothing
       )
+  vehicleID <- Except.except do
+    Either.note "Vehicle ID is null" (decoded.relationships.vehicle.data <#> _.id)
   pure
     { arrivalTime
     , direction
-    , vehicleID: decoded.relationships.vehicle.data.id
+    , vehicleID
     }
 
 parseMany :: JSON -> Effect (Either String (Array Prediction))
@@ -112,23 +117,29 @@ parseMany json = Except.runExceptT do
   arrayDecoded <- Except.except do
     Bifunctor.lmap Codec.JSON.DecodeError.print do
       Codec.JSON.decode (Codec.JSON.array codec) json
-  Foldable.for arrayDecoded \decoded -> do
-    arrivalTime' <- ExceptT do
-      Bifunctor.lmap printError <$>
-        Exception.try (JSDate.parse decoded.attributes.arrival_time)
-    arrivalTime <- Except.except do
-      Either.note ("Failed to convert JSDate to DateTime: " <> show arrivalTime')
-        (JSDate.toDateTime arrivalTime')
-    direction <- Except.except do
-      Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
-        ( case decoded.attributes.direction_id of
-            0 -> Just false
-            1 -> Just true
-            _ -> Nothing
+
+  -- Ignore any predictions that are missing a vehicle ID
+  Array.catMaybes <$>
+    Foldable.for arrayDecoded \decoded -> do
+      arrivalTime' <- ExceptT do
+        Bifunctor.lmap printError <$>
+          Exception.try (JSDate.parse decoded.attributes.arrival_time)
+      arrivalTime <- Except.except do
+        Either.note ("Failed to convert JSDate to DateTime: " <> show arrivalTime')
+          (JSDate.toDateTime arrivalTime')
+      direction <- Except.except do
+        Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
+          ( case decoded.attributes.direction_id of
+              0 -> Just false
+              1 -> Just true
+              _ -> Nothing
+          )
+
+      pure
+        ( decoded.relationships.vehicle.data <#> \{ id: vehicleID } ->
+            { arrivalTime
+            , direction
+            , vehicleID
+            }
         )
-    pure
-      { arrivalTime
-      , direction
-      , vehicleID: decoded.relationships.vehicle.data.id
-      }
 
