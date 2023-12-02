@@ -39,10 +39,17 @@ import JSON (JSON)
 --   "type": "prediction"
 -- },
 
+data Direction = Inbound | Outbound
+
+instance Show Direction where
+  show Inbound = "Inbound"
+  show Outbound = "Outbound"
+
 type Prediction =
   { arrivalTime :: DateTime
   , vehicleID :: String
-  , direction :: Boolean
+  , tripID :: String
+  , direction :: Direction
   }
 
 type RawPrediction =
@@ -53,6 +60,7 @@ type RawPrediction =
   , relationships ::
       { route :: { data :: { id :: String } }
       , stop :: { data :: { id :: String } }
+      , trip :: { data :: { id :: String } }
       , vehicle :: { data :: Maybe { id :: String } }
       }
   }
@@ -70,6 +78,11 @@ codec = Codec.JSON.Record.object
               }
           }
       , stop: Codec.JSON.Record.object
+          { data: Codec.JSON.Record.object
+              { id: Codec.JSON.string
+              }
+          }
+      , trip: Codec.JSON.Record.object
           { data: Codec.JSON.Record.object
               { id: Codec.JSON.string
               }
@@ -99,8 +112,8 @@ parse json = Except.runExceptT do
   direction <- Except.except do
     Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
       ( case decoded.attributes.direction_id of
-          0 -> Just false
-          1 -> Just true
+          0 -> Just Outbound
+          1 -> Just Inbound
           _ -> Nothing
       )
   vehicleID <- Except.except do
@@ -109,6 +122,7 @@ parse json = Except.runExceptT do
     { arrivalTime
     , direction
     , vehicleID
+    , tripID: decoded.relationships.trip.data.id
     }
 
 parseMany :: JSON -> Effect (Either String (Array Prediction))
@@ -130,8 +144,8 @@ parseMany json = Except.runExceptT do
       direction <- Except.except do
         Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
           ( case decoded.attributes.direction_id of
-              0 -> Just false
-              1 -> Just true
+              0 -> Just Outbound
+              1 -> Just Inbound
               _ -> Nothing
           )
 
@@ -140,6 +154,7 @@ parseMany json = Except.runExceptT do
             { arrivalTime
             , direction
             , vehicleID
+            , tripID: decoded.relationships.trip.data.id
             }
         )
 

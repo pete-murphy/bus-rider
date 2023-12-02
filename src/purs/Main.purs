@@ -28,11 +28,18 @@ import Web.Streams.Reader as Streams.Reader
 url :: String
 url = "https://api-v3.mbta.com/predictions/?filter[route]=9&filter[stop]=place-43&stop_sequence=8"
 
+main :: Effect Unit
+main = do
+  apiKey <- Process.lookupEnv "API_KEY"
+    # onNothingM (Exception.throw "API_KEY not found")
+  stream apiKey
+
 stream :: String -> Effect Unit
 stream apiKey = do
-
   textDecoder <- TextDecoder.new UtfLabel.utf8
+
   en_US <- Locale.new_ "en-US"
+
   dateTimeFormat <-
     DateTimeFormat.new [ en_US ]
       { weekday: "long"
@@ -47,13 +54,17 @@ stream apiKey = do
       { "Accept": "text/event-stream"
       , "X-API-Key": apiKey
       }
+
   Aff.launchAff_ do
     response <- Fetch.fetch url { headers }
+
     reader <- Class.liftEffect do
       ReadableStream.getReader =<< _.body response
+
     _ <- Lazy.fix \loop -> Maybe.Trans.runMaybeT do
       arrayView <- MaybeT do
         Promise.Aff.toAffE (Streams.Reader.read reader)
+
       result <- Class.liftEffect do
         TextDecoder.decodeWithOptions arrayView { stream: true } textDecoder
 
@@ -67,7 +78,8 @@ stream apiKey = do
                   Console.log "Reset"
                   Foldable.for_ predictions \prediction -> do
                     Console.log ("Vehicle ID: " <> prediction.vehicleID)
-                    Console.log ("Direction: " <> if prediction.direction then "Inbound" else "Outbound")
+                    Console.log ("Trip ID: " <> prediction.tripID)
+                    Console.log ("Direction: " <> show prediction.direction)
                     Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
                     Console.log ""
 
@@ -78,7 +90,8 @@ stream apiKey = do
                 Right prediction -> do
                   Console.log "Add"
                   Console.log ("Vehicle ID: " <> prediction.vehicleID)
-                  Console.log ("Direction: " <> if prediction.direction then "Inbound" else "Outbound")
+                  Console.log ("Trip ID: " <> prediction.tripID)
+                  Console.log ("Direction: " <> show prediction.direction)
                   Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
                   Console.log ""
 
@@ -89,7 +102,8 @@ stream apiKey = do
                 Right prediction -> do
                   Console.log "Update"
                   Console.log ("Vehicle ID: " <> prediction.vehicleID)
-                  Console.log ("Direction: " <> if prediction.direction then "Inbound" else "Outbound")
+                  Console.log ("Trip ID: " <> prediction.tripID)
+                  Console.log ("Direction: " <> show prediction.direction)
                   Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
                   Console.log ""
 
@@ -103,12 +117,6 @@ stream apiKey = do
       MaybeT loop
 
     pure unit
-
-main :: Effect Unit
-main = do
-  apiKey <- Process.lookupEnv "API_KEY"
-    # onNothingM (Exception.throw "API_KEY not found")
-  stream apiKey
 
 onNothingM :: forall a m. Monad m => m a -> m (Maybe a) -> m a
 onNothingM ma mMaybeA = do
