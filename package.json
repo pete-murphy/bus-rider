@@ -7,7 +7,7 @@
     "@types/eventsource": "^1.1.15",
     "purescript": "^0.15.13",
     "purs-tidy": "^0.10.0",
-    "spago": "^0.21.0",
+    "spago": "^0.93.18",
     "ts-node": "^10.9.1",
     "typescript": "^5.3.2"
   },

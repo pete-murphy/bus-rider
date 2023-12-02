@@ -1,0 +1,37 @@
+package:
+  dependencies:
+    - aff
+    - arrays
+    - bifunctors
+    - codec-json
+    - console
+    - control
+    - datetime
+    - debug
+    - effect
+    - either
+    - exceptions
+    - fetch
+    - foldable-traversable
+    - js-date
+    - js-fetch
+    - js-intl
+    - js-promise-aff
+    - json
+    - json-codecs
+    - maybe
+    - node-fs
+    - node-process
+    - partial
+    - prelude
+    - string-parsers
+    - strings
+    - transformers
+    - web-encoding
+    - web-streams
+  name: bus-rider
+workspace:
+  extra_packages: {}
+  package_set:
+    url: https://raw.githubusercontent.com/purescript/package-sets/psc-0.15.13-20231201/packages.json
+    hash: sha256-F/5L7gf3bx+tRPvGh+39xoudS1DsWVmLexGBcQ7cDaE=
