@@ -15,7 +15,7 @@ import Data.Either (Either)
 import Data.Either as Either
 import Data.JSDate as JSDate
 import Data.Maybe (Maybe(..))
-import Data.Traversable as Foldable
+import Data.Traversable as Traversable
 import Effect (Effect)
 import Effect.Exception as Exception
 import JSON (JSON)
@@ -120,7 +120,7 @@ parseMany json = Except.runExceptT do
 
   -- Ignore any predictions that are missing a vehicle ID
   Array.catMaybes <$>
-    Foldable.for arrayDecoded \decoded -> do
+    Traversable.for arrayDecoded \decoded -> do
       arrivalTime' <- ExceptT do
         Bifunctor.lmap printError <$>
           Exception.try (JSDate.parse decoded.attributes.arrival_time)
