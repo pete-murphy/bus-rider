@@ -5,7 +5,6 @@ import Prelude
 import Codec.JSON.DecodeError as Codec.JSON.DecodeError
 import Control.Monad.Except (ExceptT(..))
 import Control.Monad.Except as Except
-import Data.Array as Array
 import Data.Bifunctor as Bifunctor
 import Data.Codec.JSON (Codec)
 import Data.Codec.JSON as Codec.JSON
@@ -15,7 +14,7 @@ import Data.Either (Either)
 import Data.Either as Either
 import Data.JSDate as JSDate
 import Data.Maybe (Maybe(..))
-import Data.Traversable as Traversable
+import Data.Witherable as Witherable
 import Effect (Effect)
 import Effect.Exception as Exception
 import JSON (JSON)
@@ -111,11 +110,11 @@ parse json = Except.runExceptT do
       (JSDate.toDateTime arrivalTime')
   direction <- Except.except do
     Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
-      ( case decoded.attributes.direction_id of
-          0 -> Just Outbound
-          1 -> Just Inbound
-          _ -> Nothing
-      )
+      case decoded.attributes.direction_id of
+        0 -> Just Outbound
+        1 -> Just Inbound
+        _ -> Nothing
+
   vehicleID <- Except.except do
     Either.note "Vehicle ID is null" (decoded.relationships.vehicle.data <#> _.id)
   pure
@@ -132,29 +131,29 @@ parseMany json = Except.runExceptT do
     Bifunctor.lmap Codec.JSON.DecodeError.print do
       Codec.JSON.decode (Codec.JSON.array codec) json
 
-  -- Ignore any predictions that are missing a vehicle ID
-  Array.catMaybes <$>
-    Traversable.for arrayDecoded \decoded -> do
-      arrivalTime' <- ExceptT do
-        Bifunctor.lmap printError <$>
-          Exception.try (JSDate.parse decoded.attributes.arrival_time)
-      arrivalTime <- Except.except do
-        Either.note ("Failed to convert JSDate to DateTime: " <> show arrivalTime')
-          (JSDate.toDateTime arrivalTime')
-      direction <- Except.except do
-        Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
-          ( case decoded.attributes.direction_id of
-              0 -> Just Outbound
-              1 -> Just Inbound
-              _ -> Nothing
-          )
+  -- `wither` effectively ignores any predictions that are missing a vehicle ID
+  -- because we can assume those predictions are for "cancellations" (only see
+  -- them in the "event: reset" case) 
+  flip Witherable.wither arrayDecoded \decoded -> do
+    arrivalTime' <- ExceptT do
+      Bifunctor.lmap printError <$>
+        Exception.try (JSDate.parse decoded.attributes.arrival_time)
+    arrivalTime <- Except.except do
+      Either.note ("Failed to convert JSDate to DateTime: " <> show arrivalTime')
+        (JSDate.toDateTime arrivalTime')
+    direction <- Except.except do
+      Either.note ("Failed to convert direction_id to Boolean: " <> show decoded.attributes.direction_id)
+        case decoded.attributes.direction_id of
+          0 -> Just Outbound
+          1 -> Just Inbound
+          _ -> Nothing
 
-      pure
-        ( decoded.relationships.vehicle.data <#> \{ id: vehicleID } ->
-            { arrivalTime
-            , direction
-            , vehicleID
-            , tripID: decoded.relationships.trip.data.id
-            }
-        )
+    pure
+      ( decoded.relationships.vehicle.data <#> \{ id: vehicleID } ->
+          { arrivalTime
+          , direction
+          , vehicleID
+          , tripID: decoded.relationships.trip.data.id
+          }
+      )
 

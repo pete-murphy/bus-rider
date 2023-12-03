@@ -12,6 +12,7 @@ package:
     - either
     - exceptions
     - fetch
+    - filterable
     - foldable-traversable
     - js-date
     - js-fetch
