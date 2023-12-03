@@ -13,10 +13,13 @@ import Effect.Aff as Aff
 import Effect.Class as Class
 import Effect.Class.Console as Console
 import Effect.Exception as Exception
+import FRP.Event (Event)
+import FRP.Event as Event
 import Fetch as Fetch
 import JS.Intl.DateTimeFormat as DateTimeFormat
 import JS.Intl.Locale as Locale
 import Node.Process as Process
+import Prediction (Prediction)
 import Prediction as Prediction
 import Promise.Aff as Promise.Aff
 import ServerSentEvent as ServerSentEvent
@@ -61,60 +64,52 @@ stream apiKey = do
     reader <- Class.liftEffect do
       ReadableStream.getReader =<< _.body response
 
-    _ <- Lazy.fix \loop -> Maybe.Trans.runMaybeT do
-      arrayView <- MaybeT do
-        Promise.Aff.toAffE (Streams.Reader.read reader)
+    let
+      (x :: Event ({ event :: String, prediction :: Prediction })) = Event.makeEvent \callback -> do
+        Aff.launchAff_ do
+          void do
+            Lazy.fix \loop -> Maybe.Trans.runMaybeT do
+              arrayView <- MaybeT do
+                Promise.Aff.toAffE (Streams.Reader.read reader)
 
-      result <- Class.liftEffect do
-        TextDecoder.decodeWithOptions arrayView { stream: true } textDecoder
+              result <- Class.liftEffect do
+                TextDecoder.decodeWithOptions arrayView { stream: true } textDecoder
 
-      Class.liftEffect case ServerSentEvent.parse result of
-        Right events -> Foldable.for_ events case _ of
-          { event: "reset", data_ } -> do
-            Prediction.parseMany data_ >>=
-              case _ of
+              Class.liftEffect case ServerSentEvent.parse result of
+                Right events -> Foldable.for_ events case _ of
+                  { event: "reset", data_ } -> do
+                    Prediction.parseMany data_ >>=
+                      case _ of
+                        Left error -> Console.error error
+                        Right predictions -> do
+                          Console.log "Reset"
+                          Foldable.for_ predictions \prediction -> do
+                            callback { event: "Reset", prediction }
+
+                  { event: "add", data_ } -> do
+                    Prediction.parse data_ >>=
+                      case _ of
+                        Left error -> Console.error error
+                        Right prediction -> do
+                          callback { event: "Add", prediction }
+
+                  { event: "update", data_ } -> do
+                    Prediction.parse data_ >>=
+                      case _ of
+                        Left error -> Console.error error
+                        Right prediction -> do
+                          callback { event: "Update", prediction }
+
+                  { event } -> do
+                    Console.warn ("Unhandled event: " <> event)
+
                 Left error -> Console.error error
-                Right predictions -> do
-                  Console.log "Reset"
-                  Foldable.for_ predictions \prediction -> do
-                    Console.log ("Vehicle ID: " <> prediction.vehicleID)
-                    Console.log ("Trip ID: " <> prediction.tripID)
-                    Console.log ("Direction: " <> show prediction.direction)
-                    Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
-                    Console.log ""
 
-          { event: "add", data_ } -> do
-            Prediction.parse data_ >>=
-              case _ of
-                Left error -> Console.error error
-                Right prediction -> do
-                  Console.log "Add"
-                  Console.log ("Vehicle ID: " <> prediction.vehicleID)
-                  Console.log ("Trip ID: " <> prediction.tripID)
-                  Console.log ("Direction: " <> show prediction.direction)
-                  Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
-                  Console.log ""
+              Console.log ""
 
-          { event: "update", data_ } -> do
-            Prediction.parse data_ >>=
-              case _ of
-                Left error -> Console.error error
-                Right prediction -> do
-                  Console.log "Update"
-                  Console.log ("Vehicle ID: " <> prediction.vehicleID)
-                  Console.log ("Trip ID: " <> prediction.tripID)
-                  Console.log ("Direction: " <> show prediction.direction)
-                  Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
-                  Console.log ""
+              MaybeT loop
 
-          { event } -> do
-            Console.warn ("Unhandled event: " <> event)
-
-        Left error -> Console.error error
-
-      Console.log ""
-
-      MaybeT loop
+        pure (pure unit)
 
     pure unit
 
