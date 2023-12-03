@@ -29,6 +29,7 @@ package:
     - string-parsers
     - strings
     - transformers
+    - validation
     - web-encoding
     - web-streams
   name: bus-rider

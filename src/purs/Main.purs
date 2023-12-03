@@ -20,10 +20,9 @@ import Fetch as Fetch
 import JS.Intl.DateTimeFormat as DateTimeFormat
 import JS.Intl.Locale as Locale
 import Node.Process as Process
-import Prediction (Prediction)
-import Prediction as Prediction
+import Prediction.Event (Direction(..))
+import Prediction.Event as Prediction.Event
 import Promise.Aff as Promise.Aff
-import ServerSentEvent as ServerSentEvent
 import Web.Encoding.TextDecoder as TextDecoder
 import Web.Encoding.UtfLabel as UtfLabel
 import Web.Streams.ReadableStream as ReadableStream
@@ -66,7 +65,7 @@ stream apiKey = do
       ReadableStream.getReader =<< _.body response
 
     let
-      (x :: Event Prediction.Event) = Event.makeEvent \callback -> do
+      (event :: Event Prediction.Event.Event) = Event.makeEvent \callback -> do
         done <- Ref.new false
 
         Aff.launchAff_ do
@@ -78,40 +77,36 @@ stream apiKey = do
               string <- Effect.Class.liftEffect do
                 TextDecoder.decodeWithOptions arrayView { stream: true } textDecoder
 
-              Effect.Class.liftEffect case ServerSentEvent.parse string of
-                Right events -> Foldable.for_ events case _ of
-                  { event: "reset", data_ } -> do
-                    Prediction.parseMany data_ >>=
-                      case _ of
-                        Left error -> Console.error error
-                        Right predictions -> do
-                          callback (Prediction.Reset predictions)
-
-                  { event: "add", data_ } -> do
-                    Prediction.parse data_ >>=
-                      case _ of
-                        Left error -> Console.error error
-                        Right prediction -> do
-                          callback (Prediction.Add prediction)
-
-                  { event: "update", data_ } -> do
-                    Prediction.parse data_ >>=
-                      case _ of
-                        Left error -> Console.error error
-                        Right prediction -> do
-                          callback (Prediction.Update prediction)
-
-                  { event } -> do
-                    Console.warn ("Unhandled event: " <> event)
-
-                Left error -> Console.error error
-
-              Console.log ""
+              Effect.Class.liftEffect case Prediction.Event.parse string of
+                Right events -> Foldable.for_ events callback
+                Left parseFailures -> Foldable.for_ parseFailures \failure ->
+                  Console.error (Prediction.Event.printParseFailure failure)
 
               weAreDone <- Effect.Class.liftEffect (Ref.read done)
               unless weAreDone (MaybeT loop)
 
         pure (Ref.write true done)
+
+    _ <- Effect.Class.liftEffect do
+      Event.subscribe event case _ of
+        Prediction.Event.Reset predictions -> do
+          Foldable.for_ predictions \prediction -> do
+            when (prediction.direction == Inbound) do
+              Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
+              Console.log prediction.tripID
+              Foldable.for_ prediction.vehicleID Console.log
+
+        Prediction.Event.Add prediction -> do
+          when (prediction.direction == Inbound) do
+            Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
+            Console.log prediction.tripID
+            Console.log prediction.vehicleID
+
+        Prediction.Event.Update prediction -> do
+          when (prediction.direction == Inbound) do
+            Console.log (DateTimeFormat.format dateTimeFormat prediction.arrivalTime)
+            Console.log prediction.tripID
+            Console.log prediction.vehicleID
 
     pure unit
 
