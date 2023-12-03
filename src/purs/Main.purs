@@ -10,9 +10,10 @@ import Data.Foldable as Foldable
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Aff as Aff
-import Effect.Class as Class
+import Effect.Class as Effect.Class
 import Effect.Class.Console as Console
 import Effect.Exception as Exception
+import Effect.Ref as Ref
 import FRP.Event (Event)
 import FRP.Event as Event
 import Fetch as Fetch
@@ -61,21 +62,23 @@ stream apiKey = do
   Aff.launchAff_ do
     response <- Fetch.fetch url { headers }
 
-    reader <- Class.liftEffect do
+    reader <- Effect.Class.liftEffect do
       ReadableStream.getReader =<< _.body response
 
     let
       (x :: Event ({ event :: String, prediction :: Prediction })) = Event.makeEvent \callback -> do
+        done <- Ref.new false
+
         Aff.launchAff_ do
           void do
             Lazy.fix \loop -> Maybe.Trans.runMaybeT do
               arrayView <- MaybeT do
                 Promise.Aff.toAffE (Streams.Reader.read reader)
 
-              result <- Class.liftEffect do
+              result <- Effect.Class.liftEffect do
                 TextDecoder.decodeWithOptions arrayView { stream: true } textDecoder
 
-              Class.liftEffect case ServerSentEvent.parse result of
+              Effect.Class.liftEffect case ServerSentEvent.parse result of
                 Right events -> Foldable.for_ events case _ of
                   { event: "reset", data_ } -> do
                     Prediction.parseMany data_ >>=
@@ -107,9 +110,10 @@ stream apiKey = do
 
               Console.log ""
 
-              MaybeT loop
+              weAreDone <- Effect.Class.liftEffect (Ref.read done)
+              unless weAreDone (MaybeT loop)
 
-        pure (pure unit)
+        pure (Ref.write true done)
 
     pure unit
 
