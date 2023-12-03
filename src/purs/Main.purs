@@ -66,7 +66,7 @@ stream apiKey = do
       ReadableStream.getReader =<< _.body response
 
     let
-      (x :: Event ({ event :: String, prediction :: Prediction })) = Event.makeEvent \callback -> do
+      (x :: Event Prediction.Event) = Event.makeEvent \callback -> do
         done <- Ref.new false
 
         Aff.launchAff_ do
@@ -75,33 +75,31 @@ stream apiKey = do
               arrayView <- MaybeT do
                 Promise.Aff.toAffE (Streams.Reader.read reader)
 
-              result <- Effect.Class.liftEffect do
+              string <- Effect.Class.liftEffect do
                 TextDecoder.decodeWithOptions arrayView { stream: true } textDecoder
 
-              Effect.Class.liftEffect case ServerSentEvent.parse result of
+              Effect.Class.liftEffect case ServerSentEvent.parse string of
                 Right events -> Foldable.for_ events case _ of
                   { event: "reset", data_ } -> do
                     Prediction.parseMany data_ >>=
                       case _ of
                         Left error -> Console.error error
                         Right predictions -> do
-                          Console.log "Reset"
-                          Foldable.for_ predictions \prediction -> do
-                            callback { event: "Reset", prediction }
+                          callback (Prediction.Reset predictions)
 
                   { event: "add", data_ } -> do
                     Prediction.parse data_ >>=
                       case _ of
                         Left error -> Console.error error
                         Right prediction -> do
-                          callback { event: "Add", prediction }
+                          callback (Prediction.Add prediction)
 
                   { event: "update", data_ } -> do
                     Prediction.parse data_ >>=
                       case _ of
                         Left error -> Console.error error
                         Right prediction -> do
-                          callback { event: "Update", prediction }
+                          callback (Prediction.Update prediction)
 
                   { event } -> do
                     Console.warn ("Unhandled event: " <> event)

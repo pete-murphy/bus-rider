@@ -14,7 +14,7 @@ import Data.Either (Either)
 import Data.Either as Either
 import Data.JSDate as JSDate
 import Data.Maybe (Maybe(..))
-import Data.Witherable as Witherable
+import Data.Traversable as Traversable
 import Effect (Effect)
 import Effect.Exception as Exception
 import JSON (JSON)
@@ -44,9 +44,9 @@ instance Show Direction where
   show Inbound = "Inbound"
   show Outbound = "Outbound"
 
-type Prediction =
+type Prediction f =
   { arrivalTime :: DateTime
-  , vehicleID :: String
+  , vehicleID :: f String
   , tripID :: String
   , direction :: Direction
   }
@@ -96,7 +96,10 @@ codec = Codec.JSON.Record.object
       }
   }
 
-parse :: JSON -> Effect (Either String Prediction)
+type Identity :: forall k. k -> k
+type Identity x = x
+
+parse :: JSON -> Effect (Either String (Prediction Identity))
 parse json = Except.runExceptT do
   let printError error = Exception.name error <> ": " <> Exception.message error
   decoded <- Except.except do
@@ -124,17 +127,14 @@ parse json = Except.runExceptT do
     , tripID: decoded.relationships.trip.data.id
     }
 
-parseMany :: JSON -> Effect (Either String (Array Prediction))
+parseMany :: JSON -> Effect (Either String (Array (Prediction Maybe)))
 parseMany json = Except.runExceptT do
   let printError error = Exception.name error <> ": " <> Exception.message error
   arrayDecoded <- Except.except do
     Bifunctor.lmap Codec.JSON.DecodeError.print do
       Codec.JSON.decode (Codec.JSON.array codec) json
 
-  -- `wither` effectively ignores any predictions that are missing a vehicle ID
-  -- because we can assume those predictions are for "cancellations" (only see
-  -- them in the "event: reset" case) 
-  flip Witherable.wither arrayDecoded \decoded -> do
+  Traversable.for arrayDecoded \decoded -> do
     arrivalTime' <- ExceptT do
       Bifunctor.lmap printError <$>
         Exception.try (JSDate.parse decoded.attributes.arrival_time)
@@ -149,11 +149,13 @@ parseMany json = Except.runExceptT do
           _ -> Nothing
 
     pure
-      ( decoded.relationships.vehicle.data <#> \{ id: vehicleID } ->
-          { arrivalTime
-          , direction
-          , vehicleID
-          , tripID: decoded.relationships.trip.data.id
-          }
-      )
+      { arrivalTime
+      , direction
+      , vehicleID: decoded.relationships.vehicle.data <#> _.id
+      , tripID: decoded.relationships.trip.data.id
+      }
 
+data Event
+  = Reset (Array (Prediction Maybe))
+  | Add (Prediction Identity)
+  | Update (Prediction Identity)
